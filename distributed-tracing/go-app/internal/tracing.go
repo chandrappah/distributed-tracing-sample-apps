@@ -4,19 +4,20 @@ package internal
 
 import (
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 
 	opentracing "github.com/opentracing/opentracing-go"
 	otrext "github.com/opentracing/opentracing-go/ext"
-	jaeger "github.com/uber/jaeger-client-go"
-	jaegercfg "github.com/uber/jaeger-client-go/config"
-	jaegerlog "github.com/uber/jaeger-client-go/log"
-	jmetrics "github.com/uber/jaeger-lib/metrics"
+        wfreporter "github.com/wavefronthq/wavefront-opentracing-sdk-go/reporter"
+        wftracer "github.com/wavefronthq/wavefront-opentracing-sdk-go/tracer"
+        application "github.com/wavefronthq/wavefront-sdk-go/application"
+        wavefront "github.com/wavefronthq/wavefront-sdk-go/senders"
 )
 
-func NewGlobalTracer(serviceName string) io.Closer {
+/*func NewGlobalTracer(serviceName string) io.Closer {
 
 	config, enverr := jaegercfg.FromEnv()
 	if enverr != nil {
@@ -46,7 +47,69 @@ func NewGlobalTracer(serviceName string) io.Closer {
 	}
 
 	return closer
+}*/
+
+func NewDirectGlobalTracer(serviceName string, cluster string, token string, batchSize int, maxBufferSize int, flushInterval int, applicationName string) io.Closer {
+
+	config := &wavefront.DirectConfiguration{
+		Server: cluster,
+		Token: token,
+		BatchSize: batchSize,
+		MaxBufferSize: maxBufferSize,
+		FlushIntervalSeconds: flushInterval,
+	}
+	sender, err := wavefront.NewDirectSender(config)
+	if err != nil {
+		log.Printf("Failed to create Wavefront Sender: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	appTags := application.New(applicationName, serviceName)
+
+	directrep := wfreporter.New(sender, appTags)
+	consolerep := wfreporter.NewConsoleSpanReporter(serviceName)
+
+	reporter := wfreporter.NewCompositeSpanReporter(directrep, consolerep)
+
+	tracer := wftracer.New(reporter)
+
+	opentracing.SetGlobalTracer(tracer)
+
+	return ioutil.NopCloser(nil)
+
 }
+
+func NewProxyGlobalTracer(serviceName string, proxyIp string, tracingPort int, metricsPort int, distributionPort int, flushInterval int, applicationName string) io.Closer {
+
+        config := &wavefront.ProxyConfiguration{
+                Host:        proxyIp,
+                TracingPort: tracingPort,
+		MetricsPort: metricsPort,
+		DistributionPort: distributionPort,
+		FlushIntervalSeconds: flushInterval,
+        }
+
+        sender, err := wavefront.NewProxySender(config)
+        if err != nil {
+                log.Printf("Failed to create Wavefront Sender: %s\n", err.Error())
+                os.Exit(1)
+        }
+
+	appTags := application.New(applicationName, serviceName)
+
+        directrep := wfreporter.New(sender, appTags)
+        consolerep := wfreporter.NewConsoleSpanReporter(serviceName)
+
+        reporter := wfreporter.NewCompositeSpanReporter(directrep, consolerep)
+
+        tracer := wftracer.New(reporter)
+
+        opentracing.SetGlobalTracer(tracer)
+
+        return ioutil.NopCloser(nil)
+
+}
+
 
 func NewServerSpan(req *http.Request, spanName string) opentracing.Span {
 	tracer := opentracing.GlobalTracer()
@@ -64,3 +127,4 @@ func NewServerSpan(req *http.Request, spanName string) opentracing.Span {
 
 	return span
 }
+

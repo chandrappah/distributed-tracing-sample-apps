@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"os"
+	"strconv"
+	"io"
 
 	. "wavefront.com/hackathon/beachshirts/internal"
 	"wavefront.com/hackathon/beachshirts/services/delivery"
@@ -30,8 +33,28 @@ func main() {
 	}
 
 	var server Server
+	var closer io.Closer
+	serviceName := GlobalConfig.Service 
 
-	closer := NewGlobalTracer(GlobalConfig.Service + "-test")
+	if strings.Contains(os.Args[2], "true") {
+		proxyIP := os.Args[3]
+		tracingPort, _ := strconv.Atoi(os.Args[4])
+		metricsPort, _ := strconv.Atoi(os.Args[5])
+		distributedPort, _ := strconv.Atoi(os.Args[6])
+		flushInterval, _ := strconv.Atoi(os.Args[7])
+		applicationName := os.Args[8]
+		closer = NewProxyGlobalTracer(serviceName + "-test", proxyIP, tracingPort, metricsPort, distributedPort, flushInterval, applicationName)
+	} else {
+		cluster := os.Args[3]
+		token := os.Args[4]
+		batchSize, _ := strconv.Atoi(os.Args[5])
+                maxBufferSize, _ := strconv.Atoi(os.Args[6])
+                flushInterval, _ := strconv.Atoi(os.Args[7])
+                applicationName := os.Args[8]
+		closer = NewDirectGlobalTracer(serviceName + "-test", cluster, token, batchSize, maxBufferSize, flushInterval, applicationName)
+
+}
+
 	defer closer.Close()
 
 	switch GlobalConfig.Service {
@@ -54,3 +77,4 @@ func main() {
 		os.Exit(1)
 	}
 }
+
